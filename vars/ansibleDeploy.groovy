@@ -1,73 +1,53 @@
-def call(String configFile = 'config.properties') {
+```groovy
+def call() {
 
-    def config = readProperties file: configFile
+    node {
 
-    def slackChannel = config.SLACK_CHANNEL_NAME
-    def environment = config.ENVIRONMENT
-    def codeBasePath = config.CODE_BASE_PATH
-    def actionMessage = config.ACTION_MESSAGE
-    def keepApprovalStage = config.KEEP_APPROVAL_STAGE.toBoolean()
+        def config
 
-    pipeline {
+        stage('Clone') {
+            echo 'Cloning Kubernetes repository...'
 
-        agent any
+            checkout scm
 
-        stages {
-
-            stage('Clone') {
-                steps {
-                    echo "Cloning Kubernetes repository..."
-
-                    git(
-                        branch: 'main',
-                        url: 'https://github.com/kartikkotnala1/Kubernetes.git'
-                    )
-                }
-            }
-
-            stage('User Approval') {
-                when {
-                    expression {
-                        return keepApprovalStage
-                    }
-                }
-
-                steps {
-                    input(
-                        message: "Approve ${environment} deployment?",
-                        ok: "Approve"
-                    )
-                }
-            }
-
-            stage('Playbook Execution') {
-                steps {
-                    echo "Environment: ${environment}"
-                    echo "Code Base Path: ${codeBasePath}"
-
-                    sh '''
-                        ansible-playbook -i inventory playbook.yml
-                    '''
-                }
-            }
-
-            stage('Notification') {
-                steps {
-                    echo "Notification"
-                    echo "Channel: ${slackChannel}"
-                    echo "Message: ${actionMessage}"
-                }
-            }
+            echo 'Repository cloned successfully.'
         }
 
-        post {
-            success {
-                echo "Ansible deployment completed successfully."
-            }
+        stage('Read Configuration') {
+            echo 'Reading config.properties...'
 
-            failure {
-                echo "Ansible deployment failed."
-            }
+            config = readProperties file: 'config.properties'
+
+            echo "Playbook: ${config.playbook}"
+            echo "Inventory: ${config.inventory}"
+        }
+
+        stage('User Approval') {
+            input(
+                message: 'Do you want to execute the Ansible playbook?',
+                ok: 'Proceed'
+            )
+        }
+
+        stage('Playbook Execution') {
+            echo 'Executing Ansible playbook...'
+
+            sh """
+                ansible-playbook \
+                -i ${config.inventory} \
+                ${config.playbook}
+            """
+
+            echo 'Ansible playbook executed successfully.'
+        }
+
+        stage('Notification') {
+            echo 'Ansible deployment completed successfully.'
+
+            echo "Job: ${env.JOB_NAME}"
+            echo "Build: ${env.BUILD_NUMBER}"
+            echo "Build URL: ${env.BUILD_URL}"
         }
     }
 }
+```

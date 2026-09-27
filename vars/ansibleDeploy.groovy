@@ -1,4 +1,3 @@
-```groovy
 def call() {
 
     node {
@@ -50,4 +49,4 @@ def call() {
         }
     }
 }
-```
+

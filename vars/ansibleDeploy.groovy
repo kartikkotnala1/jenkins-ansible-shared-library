@@ -42,6 +42,8 @@ def call() {
             echo 'Executing Ansible playbook...'
 
             sh """
+                chmod 400 LVM.pem
+
                 ansible-playbook \
                 -i ${config.INVENTORY} \
                 ${config.PLAYBOOK}

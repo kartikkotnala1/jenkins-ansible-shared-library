@@ -25,11 +25,13 @@ def call(String configFile = 'config.properties') {
 
                         def config = readProperties file: configFile
 
-                        env.SLACK_CHANNEL = config.SLACK_CHANNEL
+                        env.SLACK_CHANNEL = config.SLACK_CHANNEL_NAME
                         env.ENVIRONMENT = config.ENVIRONMENT
                         env.CODE_BASE_PATH = config.CODE_BASE_PATH
                         env.ACTION_MESSAGE = config.ACTION_MESSAGE
                         env.KEEP_APPROVAL_STAGE = config.KEEP_APPROVAL_STAGE
+                        env.PLAYBOOK = config.PLAYBOOK
+                        env.INVENTORY = config.INVENTORY
 
                         echo "Reading ${configFile}..."
 
@@ -37,6 +39,8 @@ def call(String configFile = 'config.properties') {
                         echo "Code Base Path: ${env.CODE_BASE_PATH}"
                         echo "Slack Channel: ${env.SLACK_CHANNEL}"
                         echo "Approval Stage: ${env.KEEP_APPROVAL_STAGE}"
+                        echo "Playbook: ${env.PLAYBOOK}"
+                        echo "Inventory: ${env.INVENTORY}"
                     }
                 }
             }
@@ -58,13 +62,12 @@ def call(String configFile = 'config.properties') {
 
             stage('Playbook Execution') {
                 steps {
-
                     echo "Executing Ansible playbook..."
 
-                    sh '''
+                    sh """
                         chmod 400 LVM.pem
-                        ansible-playbook -i inventory playbook.yml
-                    '''
+                        ansible-playbook -i ${env.INVENTORY} ${env.PLAYBOOK}
+                    """
 
                     echo "Ansible playbook executed successfully."
                 }
@@ -73,6 +76,10 @@ def call(String configFile = 'config.properties') {
             stage('Notification') {
                 steps {
                     script {
+
+                        if (!env.SLACK_CHANNEL?.trim()) {
+                            error "SLACK_CHANNEL_NAME is missing in config.properties"
+                        }
 
                         def successMessage = """
 Kubernetes Ansible Deployment
@@ -100,11 +107,10 @@ Build URL: ${env.BUILD_URL}
         }
 
         post {
-
             failure {
                 script {
 
-                    if (env.SLACK_CHANNEL) {
+                    if (env.SLACK_CHANNEL?.trim()) {
 
                         def failureMessage = """
 Kubernetes Ansible Deployment

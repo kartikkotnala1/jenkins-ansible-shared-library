@@ -17,36 +17,48 @@ def call() {
 
             config = readProperties file: 'config.properties'
 
-            echo "Playbook: ${config.playbook}"
-            echo "Inventory: ${config.inventory}"
+            echo "Environment: ${config.ENVIRONMENT}"
+            echo "Code Base Path: ${config.CODE_BASE_PATH}"
+            echo "Playbook: ${config.PLAYBOOK}"
+            echo "Inventory: ${config.INVENTORY}"
         }
 
         stage('User Approval') {
-            input(
-                message: 'Do you want to execute the Ansible playbook?',
-                ok: 'Proceed'
-            )
+
+            if (config.KEEP_APPROVAL_STAGE.toBoolean()) {
+
+                input(
+                    message: "Deploy ${config.ENVIRONMENT} using ${config.PLAYBOOK}?",
+                    ok: 'Proceed'
+                )
+
+            } else {
+                echo 'Approval stage disabled.'
+            }
         }
 
         stage('Playbook Execution') {
+
             echo 'Executing Ansible playbook...'
 
             sh """
                 ansible-playbook \
-                -i ${config.inventory} \
-                ${config.playbook}
+                -i ${config.INVENTORY} \
+                ${config.PLAYBOOK}
             """
 
             echo 'Ansible playbook executed successfully.'
         }
 
         stage('Notification') {
-            echo 'Ansible deployment completed successfully.'
+
+            echo "${config.ACTION_MESSAGE}"
 
             echo "Job: ${env.JOB_NAME}"
             echo "Build: ${env.BUILD_NUMBER}"
+            echo "Environment: ${config.ENVIRONMENT}"
+            echo "Slack Channel: ${config.SLACK_CHANNEL_NAME}"
             echo "Build URL: ${env.BUILD_URL}"
         }
     }
 }
-

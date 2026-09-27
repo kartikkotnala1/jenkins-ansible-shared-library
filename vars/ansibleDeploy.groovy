@@ -1,66 +1,124 @@
-def call() {
+def call(String configFile = 'config.properties') {
 
-    node {
+    def config = readProperties file: configFile
 
-        def config
+    def slackChannel = config.SLACK_CHANNEL_NAME
+    def environment = config.ENVIRONMENT
+    def codeBasePath = config.CODE_BASE_PATH
+    def actionMessage = config.ACTION_MESSAGE
+    def keepApprovalStage = config.KEEP_APPROVAL_STAGE.toBoolean()
 
-        stage('Clone') {
-            echo 'Cloning Kubernetes repository...'
+    pipeline {
 
-            checkout scm
+        agent any
 
-            echo 'Repository cloned successfully.'
-        }
+        stages {
 
-        stage('Read Configuration') {
-            echo 'Reading config.properties...'
+            stage('Clone') {
+                steps {
+                    echo "Cloning Kubernetes repository..."
 
-            config = readProperties file: 'config.properties'
+                    git(
+                        branch: 'main',
+                        url: 'https://github.com/kartikkotnala1/Kubernetes.git'
+                    )
 
-            echo "Environment: ${config.ENVIRONMENT}"
-            echo "Code Base Path: ${config.CODE_BASE_PATH}"
-            echo "Playbook: ${config.PLAYBOOK}"
-            echo "Inventory: ${config.INVENTORY}"
-        }
+                    echo "Repository cloned successfully."
+                }
+            }
 
-        stage('User Approval') {
+            stage('Read Configuration') {
+                steps {
+                    echo "Reading config.properties..."
 
-            if (config.KEEP_APPROVAL_STAGE.toBoolean()) {
+                    echo "Environment: ${environment}"
+                    echo "Code Base Path: ${codeBasePath}"
+                    echo "Slack Channel: ${slackChannel}"
+                }
+            }
 
-                input(
-                    message: "Deploy ${config.ENVIRONMENT} using ${config.PLAYBOOK}?",
-                    ok: 'Proceed'
-                )
+            stage('User Approval') {
+                when {
+                    expression {
+                        return keepApprovalStage
+                    }
+                }
 
-            } else {
-                echo 'Approval stage disabled.'
+                steps {
+                    input(
+                        message: "Deploy ${environment} using Ansible?",
+                        ok: "Proceed"
+                    )
+                }
+            }
+
+            stage('Playbook Execution') {
+                steps {
+                    echo "Executing Ansible playbook..."
+
+                    sh '''
+                        chmod 400 LVM.pem
+                        ansible-playbook -i inventory playbook.yml
+                    '''
+
+                    echo "Ansible playbook executed successfully."
+                }
+            }
+
+            stage('Notification') {
+                steps {
+                    script {
+
+                        def message = """
+Kubernetes Ansible Deployment
+
+Status: SUCCESS
+Environment: ${environment}
+Message: ${actionMessage}
+Job: ${env.JOB_NAME}
+Build: #${env.BUILD_NUMBER}
+Build URL: ${env.BUILD_URL}
+"""
+
+                        echo "Sending Slack notification..."
+                        echo "Slack Channel: ${slackChannel}"
+
+                        slackSend(
+                            channel: slackChannel,
+                            message: message
+                        )
+
+                        echo "Slack notification sent successfully."
+                    }
+                }
             }
         }
 
-        stage('Playbook Execution') {
+        post {
 
-            echo 'Executing Ansible playbook...'
+            success {
+                echo "Kubernetes deployment completed successfully."
+            }
 
-            sh """
-                chmod 400 LVM.pem
+            failure {
+                script {
 
-                ansible-playbook \
-                -i ${config.INVENTORY} \
-                ${config.PLAYBOOK}
-            """
+                    def failureMessage = """
+Kubernetes Ansible Deployment
 
-            echo 'Ansible playbook executed successfully.'
-        }
+Status: FAILED
+Environment: ${environment}
+Job: ${env.JOB_NAME}
+Build: #${env.BUILD_NUMBER}
+Build URL: ${env.BUILD_URL}
+"""
 
-        stage('Notification') {
-
-            echo "${config.ACTION_MESSAGE}"
-
-            echo "Job: ${env.JOB_NAME}"
-            echo "Build: ${env.BUILD_NUMBER}"
-            echo "Environment: ${config.ENVIRONMENT}"
-            echo "Slack Channel: ${config.SLACK_CHANNEL_NAME}"
-            echo "Build URL: ${env.BUILD_URL}"
+                    slackSend(
+                        channel: slackChannel,
+                        message: failureMessage
+                    )
+                }
+            }
         }
     }
 }

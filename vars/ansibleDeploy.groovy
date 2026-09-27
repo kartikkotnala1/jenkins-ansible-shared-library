@@ -1,13 +1,5 @@
 def call(String configFile = 'config.properties') {
 
-    def config = readProperties file: configFile
-
-    def slackChannel = config.SLACK_CHANNEL_NAME
-    def environment = config.ENVIRONMENT
-    def codeBasePath = config.CODE_BASE_PATH
-    def actionMessage = config.ACTION_MESSAGE
-    def keepApprovalStage = config.KEEP_APPROVAL_STAGE.toBoolean()
-
     pipeline {
 
         agent any
@@ -29,24 +21,36 @@ def call(String configFile = 'config.properties') {
 
             stage('Read Configuration') {
                 steps {
-                    echo "Reading config.properties..."
+                    script {
 
-                    echo "Environment: ${environment}"
-                    echo "Code Base Path: ${codeBasePath}"
-                    echo "Slack Channel: ${slackChannel}"
+                        def config = readProperties file: configFile
+
+                        env.SLACK_CHANNEL = config.SLACK_CHANNEL
+                        env.ENVIRONMENT = config.ENVIRONMENT
+                        env.CODE_BASE_PATH = config.CODE_BASE_PATH
+                        env.ACTION_MESSAGE = config.ACTION_MESSAGE
+                        env.KEEP_APPROVAL_STAGE = config.KEEP_APPROVAL_STAGE
+
+                        echo "Reading ${configFile}..."
+
+                        echo "Environment: ${env.ENVIRONMENT}"
+                        echo "Code Base Path: ${env.CODE_BASE_PATH}"
+                        echo "Slack Channel: ${env.SLACK_CHANNEL}"
+                        echo "Approval Stage: ${env.KEEP_APPROVAL_STAGE}"
+                    }
                 }
             }
 
             stage('User Approval') {
                 when {
                     expression {
-                        return keepApprovalStage
+                        return env.KEEP_APPROVAL_STAGE?.toBoolean()
                     }
                 }
 
                 steps {
                     input(
-                        message: "Deploy ${environment} using Ansible?",
+                        message: "Deploy ${env.ENVIRONMENT} using ${env.CODE_BASE_PATH}?",
                         ok: "Proceed"
                     )
                 }
@@ -54,6 +58,7 @@ def call(String configFile = 'config.properties') {
 
             stage('Playbook Execution') {
                 steps {
+
                     echo "Executing Ansible playbook..."
 
                     sh '''
@@ -69,23 +74,23 @@ def call(String configFile = 'config.properties') {
                 steps {
                     script {
 
-                        def message = """
+                        def successMessage = """
 Kubernetes Ansible Deployment
 
 Status: SUCCESS
-Environment: ${environment}
-Message: ${actionMessage}
+Environment: ${env.ENVIRONMENT}
+Message: ${env.ACTION_MESSAGE}
 Job: ${env.JOB_NAME}
 Build: #${env.BUILD_NUMBER}
 Build URL: ${env.BUILD_URL}
 """
 
                         echo "Sending Slack notification..."
-                        echo "Slack Channel: ${slackChannel}"
+                        echo "Slack Channel: ${env.SLACK_CHANNEL}"
 
                         slackSend(
-                            channel: slackChannel,
-                            message: message
+                            channel: env.SLACK_CHANNEL,
+                            message: successMessage
                         )
 
                         echo "Slack notification sent successfully."
@@ -96,27 +101,26 @@ Build URL: ${env.BUILD_URL}
 
         post {
 
-            success {
-                echo "Kubernetes deployment completed successfully."
-            }
-
             failure {
                 script {
 
-                    def failureMessage = """
+                    if (env.SLACK_CHANNEL) {
+
+                        def failureMessage = """
 Kubernetes Ansible Deployment
 
 Status: FAILED
-Environment: ${environment}
+Environment: ${env.ENVIRONMENT}
 Job: ${env.JOB_NAME}
 Build: #${env.BUILD_NUMBER}
 Build URL: ${env.BUILD_URL}
 """
 
-                    slackSend(
-                        channel: slackChannel,
-                        message: failureMessage
-                    )
+                        slackSend(
+                            channel: env.SLACK_CHANNEL,
+                            message: failureMessage
+                        )
+                    }
                 }
             }
         }
